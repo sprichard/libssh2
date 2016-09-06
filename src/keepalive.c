@@ -75,9 +75,16 @@ libssh2_keepalive_send (LIBSSH2_SESSION *session,
         size_t len = sizeof (keepalive_data) - 1;
         int rc;
 
+#ifdef EBCDIC
+		libssh2_make_ascii((char*)keepalive_data+5, 21);
+#endif
         keepalive_data[len - 1] =
             (unsigned char)session->keepalive_want_reply;
 
+resend_keepalive:
+		rc = 0;
+// This code does not work. Altered below.
+#if 0
         rc = _libssh2_transport_send(session, keepalive_data, len, NULL, 0);
         /* Silently ignore PACKET_EAGAIN here: if the write buffer is
            already full, sending another keepalive is not useful. */
@@ -86,6 +93,27 @@ libssh2_keepalive_send (LIBSSH2_SESSION *session,
                            "Unable to send keepalive message");
             return rc;
         }
+#endif
+
+// This is the altered code.
+		if (rc && rc == LIBSSH2_ERROR_EAGAIN) {
+			// We have to take care of EAGAIN, because the keepalive packet
+			// is now in transport. If we just ignore it and leave, the
+			// application will get control, start another transport write
+			// and get BAD_USE.
+			rc = _libssh2_wait_socket(session);
+            if (rc) return rc;
+			goto resend_keepalive;
+		}
+		if (rc && rc != LIBSSH2_ERROR_BAD_USE) {
+			// On any error other than BAD_USE, return error. We ignore BAD_USE
+			// because the write buffer is full and another transport write is 
+			// in progress. This means we didn't send a keepalive and we don't 
+			// need a keepalive anyway since data is in the pipeline.
+			_libssh2_error(session, LIBSSH2_ERROR_SOCKET_SEND,
+                           "Unable to send keepalive message");
+            return rc;
+		}
 
         session->keepalive_last_sent = now;
         if (seconds_to_next)

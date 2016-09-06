@@ -70,7 +70,11 @@
  *
  * Queue a connection request for a listener
  */
+#ifdef __OS400__
+static int
+#else
 static inline int
+#endif
 packet_queue_listener(LIBSSH2_SESSION * session, unsigned char *data,
                       unsigned long datalen,
                       packet_queue_listener_state_t *listen_state)
@@ -259,7 +263,11 @@ packet_queue_listener(LIBSSH2_SESSION * session, unsigned char *data,
  *
  * Accept a forwarded X11 connection
  */
+#ifdef __OS400__
+static int
+#else
 static inline int
+#endif
 packet_x11_open(LIBSSH2_SESSION * session, unsigned char *data,
                 unsigned long datalen,
                 packet_x11_open_state_t *x11open_state)
@@ -1011,9 +1019,18 @@ _libssh2_packet_add(LIBSSH2_SESSION * session, unsigned char *data,
          * If there was a key reexchange failure, let's just hope we didn't
          * send NEWKEYS yet, otherwise remote will drop us like a rock
          */
-        rc = _libssh2_kex_exchange(session, 1, &session->startup_key_state);
-        if (rc == LIBSSH2_ERROR_EAGAIN)
-            return rc;
+reexchange:
+		if (session->server) {
+			rc = _libssh2_server_kex_exchange(session->server, 1, 
+				&session->startup_key_state);
+		} else {
+			rc = _libssh2_kex_exchange(session, 1, &session->startup_key_state);
+		}
+		if (rc == LIBSSH2_ERROR_EAGAIN) {
+			rc = _libssh2_wait_socket(session);
+            if (rc) return rc;
+			goto reexchange;
+		}
     }
 
     session->packAdd_state = libssh2_NB_state_idle;

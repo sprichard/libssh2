@@ -87,6 +87,51 @@ struct _LIBSSH2_SFTP_HANDLE
 
     LIBSSH2_SFTP *sftp;
 
+	/* For server-side support we need to be able to save the pointer
+	   to the FILE or DIR structure. */
+	int				fd;
+	void*			fileptr;
+	void*			feedback;
+	unsigned char	filename[1024];
+	unsigned char*	buffer;
+	unsigned char*	file_buffer;
+	int				error_code;
+	size_t			bytes_in_file;
+	int				app_flag1;
+	int				app_flag2;
+	int				app_flag3;
+	int				app_flag4;
+	int				app_flag5;
+	void*			app_ptr1;
+	void*			app_ptr2;
+	void*			app_ptr3;
+	void*			app_ptr4;
+	void*			app_ptr5;
+	int				bytes_to_send;
+	int				bytes_remaining;
+	int				write_mode;
+	int				translate;
+	int				append;
+	int				eof;
+	int				ccsid;
+	int				stream;
+	int				recsep;
+	int				haveCR;
+	int				truncate;
+	int				remove_blanks;
+	int				record_len;
+	int				format_records;
+	char			format_delimiter;
+	char			format_trimb;
+	char			format_trimz;
+	char			format_trimd;
+	char			format_signval;
+	char			format_signpos;
+	char			format_quote;
+	char			format_exponent;
+	unsigned char	CRLF[3];
+	int				isDBF;
+
     char handle[SFTP_HANDLE_MAXLEN];
     size_t handle_len;
 
@@ -158,6 +203,28 @@ struct _LIBSSH2_SFTP
 
     /* Time that libssh2_sftp_packet_requirev() started reading */
     time_t requirev_start;
+	
+	/* State variables used in libssh2_sftp_get_request() */
+    libssh2_nonblocking_states request_state;
+    unsigned char *request_packet;
+    size_t request_packet_len;
+
+	/* State variables used in libssh2_sftp_send_status() */
+	/* and in libssh2_sftp_send_message() */
+    libssh2_nonblocking_states send_state;
+    unsigned char *send_packet;
+    unsigned char *status_packet;
+    size_t send_packet_len;
+    size_t send_packet_sent;
+	
+	/* State variables that were used in sftp.c and now sftp_server.c */
+	/* in v1.2.7. Since sftp_server.c is still of that era, it needs  */
+	/* these state variables. SEP, Liaison                            */
+    unsigned char *read_packet;
+    uint32_t read_request_id;
+    size_t read_total_read;
+    unsigned char *write_packet;
+    uint32_t write_request_id;	
 
     /* State variables used in libssh2_sftp_open_ex() */
     libssh2_nonblocking_states open_state;

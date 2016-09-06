@@ -87,9 +87,12 @@ static char *userauth_list(LIBSSH2_SESSION *session, const char *username,
         }
 
         *(s++) = SSH_MSG_USERAUTH_REQUEST;
-        _libssh2_store_str(&s, username, username_len);
-        _libssh2_store_str(&s, "ssh-connection", 14);
-        _libssh2_store_u32(&s, 4); /* send "none" separately */
+        _libssh2_store_text(&s, username, username_len);
+        _libssh2_store_text(&s, "ssh-connection", 14);
+		/* SEP Liaison - I'm changing this back to the old style because "none" 
+		   is a text field and needs to be translated */
+		_libssh2_store_text(&s, "none", 4);
+
 
         session->userauth_list_state = libssh2_NB_state_created;
     }
@@ -97,7 +100,7 @@ static char *userauth_list(LIBSSH2_SESSION *session, const char *username,
     if (session->userauth_list_state == libssh2_NB_state_created) {
         rc = _libssh2_transport_send(session, session->userauth_list_data,
                                      session->userauth_list_data_len,
-                                     (unsigned char *)"none", 4);
+                                     NULL, 0);
         if (rc == LIBSSH2_ERROR_EAGAIN) {
             _libssh2_error(session, LIBSSH2_ERROR_EAGAIN,
                            "Would block requesting userauth list");
@@ -148,6 +151,9 @@ static char *userauth_list(LIBSSH2_SESSION *session, const char *username,
         /* Do note that the memory areas overlap! */
         memmove(session->userauth_list_data, session->userauth_list_data + 5,
                 methods_len);
+#ifdef EBCDIC
+		libssh2_make_ebcdic(session->userauth_list_data, methods_len);
+#endif
         session->userauth_list_data[methods_len] = '\0';
         _libssh2_debug(session, LIBSSH2_TRACE_AUTH,
                        "Permitted auth methods: %s",
@@ -230,12 +236,13 @@ userauth_password(LIBSSH2_SESSION *session,
         }
 
         *(s++) = SSH_MSG_USERAUTH_REQUEST;
-        _libssh2_store_str(&s, username, username_len);
-        _libssh2_store_str(&s, "ssh-connection", sizeof("ssh-connection") - 1);
-        _libssh2_store_str(&s, "password", sizeof("password") - 1);
+        _libssh2_store_text(&s, username, username_len);
+        _libssh2_store_text(&s, "ssh-connection", sizeof("ssh-connection") - 1);
+        _libssh2_store_text(&s, "password", sizeof("password") - 1);
         *s++ = '\0';
-        _libssh2_store_u32(&s, password_len);
-        /* 'password' is sent separately */
+		/* SEP Liaison - I'm changing this back to the old style because password 
+		   is a text field and needs to be translated */
+		_libssh2_store_text(&s, password, password_len);
 
         _libssh2_debug(session, LIBSSH2_TRACE_AUTH,
                        "Attempting to login using password authentication");
@@ -246,7 +253,7 @@ userauth_password(LIBSSH2_SESSION *session,
     if (session->userauth_pswd_state == libssh2_NB_state_created) {
         rc = _libssh2_transport_send(session, session->userauth_pswd_data,
                                      session->userauth_pswd_data_len,
-                                     password, password_len);
+                                     NULL, 0);
         if (rc == LIBSSH2_ERROR_EAGAIN) {
             return _libssh2_error(session, LIBSSH2_ERROR_EAGAIN,
                                   "Would block writing password request");
@@ -357,16 +364,20 @@ userauth_password(LIBSSH2_SESSION *session,
                         }
 
                         *(s++) = SSH_MSG_USERAUTH_REQUEST;
-                        _libssh2_store_str(&s, username, username_len);
-                        _libssh2_store_str(&s, "ssh-connection",
+                        _libssh2_store_text(&s, username, username_len);
+                        _libssh2_store_text(&s, "ssh-connection",
                                            sizeof("ssh-connection") - 1);
-                        _libssh2_store_str(&s, "password",
+                        _libssh2_store_text(&s, "password",
                                            sizeof("password") - 1);
                         *s++ = 0x01;
-                        _libssh2_store_str(&s, (char *)password, password_len);
+                        _libssh2_store_text(&s, (char *)password, password_len);
                         _libssh2_store_u32(&s,
                                            session->userauth_pswd_newpw_len);
                         /* send session->userauth_pswd_newpw separately */
+#ifdef EBCDIC
+						libssh2_make_ascii(session->userauth_pswd_newpw, 
+							session->userauth_pswd_newpw_len);
+#endif
 
                         session->userauth_pswd_state = libssh2_NB_state_sent2;
                     }
@@ -850,17 +861,17 @@ userauth_hostbased_fromfile(LIBSSH2_SESSION *session,
         }
 
         *(session->userauth_host_s++) = SSH_MSG_USERAUTH_REQUEST;
-        _libssh2_store_str(&session->userauth_host_s, username, username_len);
-        _libssh2_store_str(&session->userauth_host_s, "ssh-connection", 14);
-        _libssh2_store_str(&session->userauth_host_s, "hostbased", 9);
+        _libssh2_store_text(&session->userauth_host_s, username, username_len);
+        _libssh2_store_text(&session->userauth_host_s, "ssh-connection", 14);
+        _libssh2_store_text(&session->userauth_host_s, "hostbased", 9);
         _libssh2_store_str(&session->userauth_host_s,
                            (const char *)session->userauth_host_method,
                            session->userauth_host_method_len);
         _libssh2_store_str(&session->userauth_host_s, (const char *)pubkeydata,
                            pubkeydata_len);
         LIBSSH2_FREE(session, pubkeydata);
-        _libssh2_store_str(&session->userauth_host_s, hostname, hostname_len);
-        _libssh2_store_str(&session->userauth_host_s, local_username,
+        _libssh2_store_text(&session->userauth_host_s, hostname, hostname_len);
+        _libssh2_store_text(&session->userauth_host_s, local_username,
                            local_username_len);
 
         rc = file_read_privatekey(session, &privkeyobj, &abstract,
@@ -1126,15 +1137,15 @@ _libssh2_userauth_publickey(LIBSSH2_SESSION *session,
         }
 
         *s++ = SSH_MSG_USERAUTH_REQUEST;
-        _libssh2_store_str(&s, username, username_len);
-        _libssh2_store_str(&s, "ssh-connection", 14);
-        _libssh2_store_str(&s, "publickey", 9);
+        _libssh2_store_text(&s, username, username_len);
+        _libssh2_store_text(&s, "ssh-connection", 14);
+        _libssh2_store_text(&s, "publickey", 9);
 
         session->userauth_pblc_b = s;
         /* Not sending signature with *this* packet */
         *s++ = 0;
 
-        _libssh2_store_str(&s, (const char *)session->userauth_pblc_method,
+        _libssh2_store_text(&s, (const char *)session->userauth_pblc_method,
                            session->userauth_pblc_method_len);
         _libssh2_store_str(&s, (const char *)pubkeydata, pubkeydata_len);
 
@@ -1287,7 +1298,7 @@ _libssh2_userauth_publickey(LIBSSH2_SESSION *session,
 
         _libssh2_store_u32(&s,
                            4 + session->userauth_pblc_method_len + 4 + sig_len);
-        _libssh2_store_str(&s, (const char *)session->userauth_pblc_method,
+        _libssh2_store_text(&s, (const char *)session->userauth_pblc_method,
                            session->userauth_pblc_method_len);
 
         LIBSSH2_FREE(session, session->userauth_pblc_method);
@@ -1441,7 +1452,11 @@ userauth_publickey_fromfile(LIBSSH2_SESSION *session,
 
     if (session->userauth_pblc_state == libssh2_NB_state_idle) {
         if (publickey) {
+#ifdef __OS400__
+		rc = file_read_publickey_TBSI(session, &session->userauth_pblc_method,
+#else
             rc = file_read_publickey(session, &session->userauth_pblc_method,
+#endif
                                      &session->userauth_pblc_method_len,
                                      &pubkeydata, &pubkeydata_len,publickey);
             if (rc)
@@ -1605,13 +1620,13 @@ userauth_keyboard_interactive(LIBSSH2_SESSION * session,
         *s++ = SSH_MSG_USERAUTH_REQUEST;
 
         /* user name */
-        _libssh2_store_str(&s, username, username_len);
+        _libssh2_store_text(&s, username, username_len);
 
         /* service name */
-        _libssh2_store_str(&s, "ssh-connection", sizeof("ssh-connection") - 1);
+        _libssh2_store_text(&s, "ssh-connection", sizeof("ssh-connection") - 1);
 
         /* "keyboard-interactive" */
-        _libssh2_store_str(&s, "keyboard-interactive",
+        _libssh2_store_text(&s, "keyboard-interactive",
                            sizeof("keyboard-interactive") - 1);
         /* language tag */
         _libssh2_store_u32(&s, 0);

@@ -86,6 +86,9 @@
 #include <sys/uio.h>
 #endif
 
+#ifdef HAVE_NETINET_IN_H
+# include <netinet/in.h>
+#endif
 #ifdef HAVE_SYS_SOCKET_H
 # include <sys/socket.h>
 #endif
@@ -133,6 +136,9 @@ static inline int writev(int sock, struct iovec *iov, int nvecs)
 #endif /* WIN32 */
 
 #include "crypto.h"
+
+/* For iSeries */
+#include "iseries.h"
 
 #ifdef HAVE_WINSOCK2_H
 
@@ -281,6 +287,8 @@ typedef struct key_exchange_state_t
     size_t oldlocal_len;
 } key_exchange_state_t;
 
+#include "libssh2_server_priv.h"
+
 #define FwdNotReq "Forward not requested"
 
 typedef struct packet_queue_listener_state_t
@@ -313,6 +321,15 @@ typedef struct packet_x11_open_state_t
     uint32_t shost_len;
     LIBSSH2_CHANNEL *channel;
 } packet_x11_open_state_t;
+
+typedef struct message_processor_state_t
+{
+    libssh2_nonblocking_states state;
+    unsigned char *m_packet;
+    size_t m_packet_len;
+    packet_require_state_t req_state;
+	unsigned char*	s;
+} message_processor_state_t;
 
 struct _LIBSSH2_PACKET
 {
@@ -427,6 +444,10 @@ struct _LIBSSH2_CHANNEL
 
     /* State variables used in libssh2_channel_handle_extended_data2() */
     libssh2_nonblocking_states extData2_state;
+	
+	/* These moved to _LIBSSH2_CHANNEL for server operation */
+	size_t	bytes_read;
+	size_t	bytes_want;
 
 };
 
@@ -572,6 +593,9 @@ struct _LIBSSH2_SESSION
 
     /* Flag options */
     struct flags flag;
+	
+	/* LIBSSH2 Server Session Context for this session */
+	LIBSSH2_SERVER_SESSION	*server;
 
     /* Agreed Key Exchange Method */
     const LIBSSH2_KEX_METHOD *kex;
@@ -893,6 +917,70 @@ struct _LIBSSH2_CRYPT_METHOD
       _libssh2_cipher_type(algo);
 };
 
+typedef struct _LIBSSH2_SERVER_KEX_METHOD LIBSSH2_SERVER_KEX_METHOD;
+
+/*
+ * _LIBSSH2_SERVER
+ *
+ * Structure containing server socket information.
+ *
+ */
+struct _LIBSSH2_SERVER
+{
+
+	char				serverBanner[256];
+	struct sockaddr_in	sin;
+	unsigned long		ipAddr;
+	unsigned char		pubkeyfile[256];
+	unsigned char		privkeyfile[256];
+	int					portNum;
+	size_t				keyTypeLen;
+	unsigned char*		keyTypeName;
+	int					keytype;
+	unsigned char*		privkey;
+	size_t				privkeylen;
+	unsigned char*		pubkey;
+	size_t				pubkeylen;
+	int					version;
+	int					sock;
+	LIBSSH2_SESSION		*session;
+
+};
+
+typedef struct _LIBSSH2_SERVER         LIBSSH2_SERVER;
+
+/*
+ * _LIBSSH2_SERVER_SESSION
+ *
+ * Structure containing server session related information.
+ *
+ */
+struct _LIBSSH2_SERVER_SESSION
+{
+
+	int					sock;
+	char				localUser[11];
+	char				cwd[256];
+	char				clientBanner[256];
+	int					version;
+	unsigned char		pubkeyfile[256];
+	unsigned char		privkeyfile[256];
+	const LIBSSH2_SERVER_KEX_METHOD *kex;
+	message_processor_state_t msg_state;
+	unsigned char*		privkey;
+	size_t				privkeylen;
+	unsigned char*		pubkey;
+	size_t				pubkeylen;
+	LIBSSH2_SERVER		*server;
+	LIBSSH2_SESSION		*session;
+	LIBSSH2_SFTP		*sftp_session;
+	LIBSSH2_CHANNEL		*channel;
+	LIBSSH2_SFTP_HANDLE	*sftp_handle;
+
+};
+
+typedef struct _LIBSSH2_SERVER_SESSION LIBSSH2_SERVER_SESSION;
+
 struct _LIBSSH2_COMP_METHOD
 {
     const char *name;
@@ -924,7 +1012,11 @@ void _libssh2_debug(LIBSSH2_SESSION * session, int context, const char *format,
 #define _libssh2_debug(x,y,z,...) do {} while (0)
 #else
 /* no gcc and not C99, do static and hopefully inline */
+#ifdef __OS400__
+static void
+#else
 static inline void
+#endif
 _libssh2_debug(LIBSSH2_SESSION * session, int context, const char *format, ...)
 {
     (void)session;

@@ -66,6 +66,7 @@ hostkey_method_ssh_rsa_init(LIBSSH2_SESSION * session,
     libssh2_rsa_ctx *rsactx;
     const unsigned char *s, *e, *n;
     unsigned long len, e_len, n_len;
+	unsigned char sshrsa[7] = "ssh-rsa";
 
     (void) hostkey_data_len;
 
@@ -78,7 +79,10 @@ hostkey_method_ssh_rsa_init(LIBSSH2_SESSION * session,
     len = _libssh2_ntohu32(s);
     s += 4;
 
-    if (len != 7 || strncmp((char *) s, "ssh-rsa", 7) != 0) {
+#ifdef EBCDIC
+	libssh2_make_ascii(sshrsa, sizeof(sshrsa));
+#endif
+    if (len != 7 || strncmp((char *) s, sshrsa, 7) != 0) {
         return -1;
     }
     s += 7;
@@ -270,6 +274,7 @@ hostkey_method_ssh_dss_init(LIBSSH2_SESSION * session,
     libssh2_dsa_ctx *dsactx;
     const unsigned char *p, *q, *g, *y, *s;
     unsigned long p_len, q_len, g_len, y_len, len;
+	unsigned char sshdss[7] = "ssh-dss";
     (void) hostkey_data_len;
 
     if (*abstract) {
@@ -280,7 +285,10 @@ hostkey_method_ssh_dss_init(LIBSSH2_SESSION * session,
     s = hostkey_data;
     len = _libssh2_ntohu32(s);
     s += 4;
-    if (len != 7 || strncmp((char *) s, "ssh-dss", 7) != 0) {
+#ifdef EBCDIC
+	libssh2_make_ascii(sshdss, sizeof(sshdss));
+#endif
+    if (len != 7 || strncmp((char *) s, sshdss, 7) != 0) {
         return -1;
     }
     s += 7;

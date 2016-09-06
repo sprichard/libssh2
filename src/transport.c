@@ -306,7 +306,18 @@ int _libssh2_transport_read(LIBSSH2_SESSION * session)
          */
         _libssh2_debug(session, LIBSSH2_TRACE_TRANS, "Redirecting into the"
                        " key re-exchange from _libssh2_transport_read");
-        rc = _libssh2_kex_exchange(session, 1, &session->startup_key_state);
+reexchange:
+		if (session->server) {
+			rc = _libssh2_server_kex_exchange(session->server, 1,
+				&session->startup_key_state);
+		} else {
+			rc = _libssh2_kex_exchange(session, 1, &session->startup_key_state);
+		}
+		if (rc == LIBSSH2_ERROR_EAGAIN) {
+			rc = _libssh2_wait_socket(session);
+            if (rc) return rc;
+			goto reexchange;
+		}
         if (rc)
             return rc;
     }

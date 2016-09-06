@@ -100,6 +100,8 @@ _libssh2_recv(libssh2_socket_t sock, void *buffer, size_t length,
     ssize_t rc;
 
     (void) abstract;
+	
+	errno = 0;
 
     rc = recv(sock, buffer, length, flags);
 #ifdef WIN32
@@ -107,6 +109,13 @@ _libssh2_recv(libssh2_socket_t sock, void *buffer, size_t length,
         return -wsa2errno();
 #elif defined(__VMS)
     if (rc < 0 ){
+        if ( errno == EWOULDBLOCK )
+            return -EAGAIN;
+        else
+            return -errno;
+    }
+#elif defined(__OS400__)
+    if (rc <= 0 ){
         if ( errno == EWOULDBLOCK )
             return -EAGAIN;
         else
@@ -137,7 +146,11 @@ _libssh2_send(libssh2_socket_t sock, const void *buffer, size_t length,
 
     (void) abstract;
 
+#ifdef __OS400__
+    rc = send(sock, (unsigned char*)buffer, length, flags);
+#else
     rc = send(sock, buffer, length, flags);
+#endif
 #ifdef WIN32
     if (rc < 0 )
         return -wsa2errno();
@@ -209,6 +222,20 @@ void _libssh2_store_str(unsigned char **buf, const char *str, size_t len)
     }
 }
 
+/* _libssh2_store_text - Like libssh2_store_str, but with translation.
+ */
+void _libssh2_store_text(unsigned char **buf, const char *str, size_t len)
+{
+    _libssh2_store_u32(buf, (uint32_t)len);
+    if(len) {
+        memcpy(*buf, str, len);
+#ifdef EBCDIC
+		libssh2_make_ascii(*buf, len);
+#endif
+        *buf += len;
+    }
+}
+
 /* Base64 Conversion */
 
 static const char base64_table[] =
@@ -262,7 +289,11 @@ libssh2_base64_decode(LIBSSH2_SESSION *session, char **data,
     }
 
     for(s = (unsigned char *) src; ((char *) s) < (src + src_len); s++) {
+#ifdef EBCDIC
+        if ((v = base64_reverse_table[E2A[*s]]) < 0)
+#else
         if ((v = base64_reverse_table[*s]) < 0)
+#endif
             continue;
         switch (i % 4) {
         case 0:

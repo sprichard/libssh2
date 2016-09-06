@@ -1058,7 +1058,7 @@ sftp_open(LIBSSH2_SFTP *sftp, const char *filename,
         *(s++) = open_file? SSH_FXP_OPEN : SSH_FXP_OPENDIR;
         sftp->open_request_id = sftp->request_id++;
         _libssh2_store_u32(&s, sftp->open_request_id);
-        _libssh2_store_str(&s, filename, filename_len);
+        _libssh2_store_text(&s, filename, filename_len);
 
         if (open_file) {
             _libssh2_store_u32(&s, flags);
@@ -1623,6 +1623,9 @@ static ssize_t sftp_readdir(LIBSSH2_SFTP_HANDLE *handle, char *buffer,
             }
 
             memcpy(buffer, s, filename_len);
+#ifdef EBCDIC
+			libssh2_make_ebcdic(buffer, filename_len);
+#endif
             buffer[filename_len] = '\0';           /* zero terminate */
             s += real_filename_len;
 
@@ -1638,6 +1641,9 @@ static ssize_t sftp_readdir(LIBSSH2_SFTP_HANDLE *handle, char *buffer,
                 }
 
                 memcpy(longentry, s, longentry_len);
+#ifdef EBCDIC
+				libssh2_make_ebcdic(longentry, longentry_len);
+#endif
                 longentry[longentry_len] = '\0'; /* zero terminate */
             }
             s += real_longentry_len;
@@ -2043,7 +2049,7 @@ static int sftp_fsync(LIBSSH2_SFTP_HANDLE *handle)
         *(s++) = SSH_FXP_EXTENDED;
         sftp->fsync_request_id = sftp->request_id++;
         _libssh2_store_u32(&s, sftp->fsync_request_id);
-        _libssh2_store_str(&s, "fsync@openssh.com", 17);
+        _libssh2_store_text(&s, "fsync@openssh.com", 17);
         _libssh2_store_str(&s, handle->handle, handle->handle_len);
 
         sftp->fsync_state = libssh2_NB_state_created;
@@ -2470,7 +2476,7 @@ static int sftp_unlink(LIBSSH2_SFTP *sftp, const char *filename,
         *(s++) = SSH_FXP_REMOVE;
         sftp->unlink_request_id = sftp->request_id++;
         _libssh2_store_u32(&s, sftp->unlink_request_id);
-        _libssh2_store_str(&s, filename, filename_len);
+        _libssh2_store_text(&s, filename, filename_len);
         sftp->unlink_state = libssh2_NB_state_created;
     }
 
@@ -2575,9 +2581,9 @@ static int sftp_rename(LIBSSH2_SFTP *sftp, const char *source_filename,
         *(sftp->rename_s++) = SSH_FXP_RENAME;
         sftp->rename_request_id = sftp->request_id++;
         _libssh2_store_u32(&sftp->rename_s, sftp->rename_request_id);
-        _libssh2_store_str(&sftp->rename_s, source_filename,
+        _libssh2_store_text(&sftp->rename_s, source_filename,
                            source_filename_len);
-        _libssh2_store_str(&sftp->rename_s, dest_filename, dest_filename_len);
+        _libssh2_store_text(&sftp->rename_s, dest_filename, dest_filename_len);
 
         if (sftp->version >= 5)
             _libssh2_store_u32(&sftp->rename_s, flags);
@@ -2701,7 +2707,7 @@ static int sftp_fstatvfs(LIBSSH2_SFTP_HANDLE *handle, LIBSSH2_SFTP_STATVFS *st)
         *(s++) = SSH_FXP_EXTENDED;
         sftp->fstatvfs_request_id = sftp->request_id++;
         _libssh2_store_u32(&s, sftp->fstatvfs_request_id);
-        _libssh2_store_str(&s, "fstatvfs@openssh.com", 20);
+        _libssh2_store_text(&s, "fstatvfs@openssh.com", 20);
         _libssh2_store_str(&s, handle->handle, handle->handle_len);
 
         sftp->fstatvfs_state = libssh2_NB_state_created;
@@ -2828,7 +2834,7 @@ static int sftp_statvfs(LIBSSH2_SFTP *sftp, const char *path,
         *(s++) = SSH_FXP_EXTENDED;
         sftp->statvfs_request_id = sftp->request_id++;
         _libssh2_store_u32(&s, sftp->statvfs_request_id);
-        _libssh2_store_str(&s, "statvfs@openssh.com", 19);
+        _libssh2_store_text(&s, "statvfs@openssh.com", 19);
         _libssh2_store_str(&s, path, path_len);
 
         sftp->statvfs_state = libssh2_NB_state_created;
@@ -2959,7 +2965,7 @@ static int sftp_mkdir(LIBSSH2_SFTP *sftp, const char *path,
         *(s++) = SSH_FXP_MKDIR;
         sftp->mkdir_request_id = sftp->request_id++;
         _libssh2_store_u32(&s, sftp->mkdir_request_id);
-        _libssh2_store_str(&s, path, path_len);
+        _libssh2_store_text(&s, path, path_len);
 
         s += sftp_attr2bin(s, &attrs);
 
@@ -3057,7 +3063,7 @@ static int sftp_rmdir(LIBSSH2_SFTP *sftp, const char *path,
         *(s++) = SSH_FXP_RMDIR;
         sftp->rmdir_request_id = sftp->request_id++;
         _libssh2_store_u32(&s, sftp->rmdir_request_id);
-        _libssh2_store_str(&s, path, path_len);
+        _libssh2_store_text(&s, path, path_len);
 
         sftp->rmdir_state = libssh2_NB_state_created;
     }
@@ -3168,7 +3174,7 @@ static int sftp_stat(LIBSSH2_SFTP *sftp, const char *path,
         }
         sftp->stat_request_id = sftp->request_id++;
         _libssh2_store_u32(&s, sftp->stat_request_id);
-        _libssh2_store_str(&s, path, path_len);
+        _libssh2_store_text(&s, path, path_len);
 
         if (stat_type == LIBSSH2_SFTP_SETSTAT)
             s += sftp_attr2bin(s, attrs);
@@ -3297,10 +3303,10 @@ static int sftp_symlink(LIBSSH2_SFTP *sftp, const char *path,
         }
         sftp->symlink_request_id = sftp->request_id++;
         _libssh2_store_u32(&s, sftp->symlink_request_id);
-        _libssh2_store_str(&s, path, path_len);
+        _libssh2_store_text(&s, path, path_len);
 
         if (link_type == LIBSSH2_SFTP_SYMLINK)
-            _libssh2_store_str(&s, target, target_len);
+            _libssh2_store_text(&s, target, target_len);
 
         sftp->symlink_state = libssh2_NB_state_created;
     }
@@ -3361,6 +3367,9 @@ static int sftp_symlink(LIBSSH2_SFTP *sftp, const char *path,
     link_len = _libssh2_ntohu32(data + 9);
     if (link_len < target_len) {
         memcpy(target, data + 13, link_len);
+#ifdef EBCDIC
+		libssh2_make_ebcdic(target, link_len);
+#endif
         target[link_len] = 0;
         retcode = (int)link_len;
     }

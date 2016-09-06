@@ -92,12 +92,14 @@ LIBSSH2_REALLOC_FUNC(libssh2_default_realloc)
  * Allocate a buffer and store the banner in session->remote.banner
  * Returns: 0 on success, LIBSSH2_ERROR_EAGAIN if read would block, negative
  * on failure
+ * SEP Liaison - make banner_receive available for use by server.c
  */
-static int
+int
 banner_receive(LIBSSH2_SESSION * session)
 {
     int ret;
     int banner_len;
+	char tempBuff[256];
 
     if (session->banner_TxRx_state == libssh2_NB_state_idle) {
         banner_len = 0;
@@ -109,7 +111,11 @@ banner_receive(LIBSSH2_SESSION * session)
 
     while ((banner_len < (int) sizeof(session->banner_TxRx_banner)) &&
            ((banner_len == 0)
+#ifdef EBCDIC
+            || (session->banner_TxRx_banner[banner_len - 1] != E2A['\n']))) {
+#else
             || (session->banner_TxRx_banner[banner_len - 1] != '\n'))) {
+#endif
         char c = '\0';
 
         /* no incoming block yet! */
@@ -157,8 +163,13 @@ banner_receive(LIBSSH2_SESSION * session)
     }
 
     while (banner_len &&
+#ifdef EBCDIC
+           ((session->banner_TxRx_banner[banner_len - 1] == E2A['\n']) ||
+            (session->banner_TxRx_banner[banner_len - 1] == E2A['\r']))) {
+#else
            ((session->banner_TxRx_banner[banner_len - 1] == '\n') ||
             (session->banner_TxRx_banner[banner_len - 1] == '\r'))) {
+#endif
         banner_len--;
     }
 
@@ -176,8 +187,16 @@ banner_receive(LIBSSH2_SESSION * session)
     }
     memcpy(session->remote.banner, session->banner_TxRx_banner, banner_len);
     session->remote.banner[banner_len] = '\0';
+#ifdef EBCDIC
+	memset(tempBuff, 0, sizeof(tempBuff));
+	memcpy(tempBuff, session->remote.banner, banner_len);
+	libssh2_make_ebcdic(tempBuff, banner_len);
+    _libssh2_debug(session, LIBSSH2_TRACE_TRANS, "Received Banner: %s",
+                   tempBuff);
+#else
     _libssh2_debug(session, LIBSSH2_TRACE_TRANS, "Received Banner: %s",
                    session->remote.banner);
+#endif
     return LIBSSH2_ERROR_NONE;
 }
 
@@ -190,13 +209,15 @@ banner_receive(LIBSSH2_SESSION * session)
  * should call this function again as soon as it is likely that more data can
  * be sent, and this function should then be called with the same argument set
  * (same data pointer and same data_len) until zero or failure is returned.
+ * SEP Liaison - make banner_send available for use by server.c
  */
-static int
+int
 banner_send(LIBSSH2_SESSION * session)
 {
     char *banner = (char *) LIBSSH2_SSH_DEFAULT_BANNER_WITH_CRLF;
     int banner_len = sizeof(LIBSSH2_SSH_DEFAULT_BANNER_WITH_CRLF) - 1;
     ssize_t ret;
+	char ebcdic_banner[256];
 #ifdef LIBSSH2DEBUG
     char banner_dup[256];
 #endif
@@ -206,6 +227,10 @@ banner_send(LIBSSH2_SESSION * session)
             /* setopt_string will have given us our \r\n characters */
             banner_len = strlen((char *) session->local.banner);
             banner = (char *) session->local.banner;
+#ifdef EBCDIC
+			memcpy(ebcdic_banner, (char *) session->local.banner, banner_len);
+			banner = ebcdic_banner;
+#endif
         }
 #ifdef LIBSSH2DEBUG
         /* Hack and slash to avoid sending CRLF in debug output */
@@ -223,6 +248,10 @@ banner_send(LIBSSH2_SESSION * session)
 
         session->banner_TxRx_state = libssh2_NB_state_created;
     }
+	
+#ifdef EBCDIC
+	libssh2_make_ascii(banner, banner_len);
+#endif
 
     /* no outgoing block yet! */
     session->socket_block_directions &= ~LIBSSH2_SESSION_BLOCK_OUTBOUND;
@@ -498,6 +527,9 @@ libssh2_session_init_ex(LIBSSH2_ALLOC_FUNC((*my_alloc)),
         _libssh2_debug(session, LIBSSH2_TRACE_TRANS,
                        "New session resource allocated");
         _libssh2_init_if_needed ();
+#ifdef __OS400__
+		nuInitOpenSSL();
+#endif
     }
     return session;
 }
@@ -671,6 +703,13 @@ static int
 session_startup(LIBSSH2_SESSION *session, libssh2_socket_t sock)
 {
     int rc;
+	char banner_literal[5];
+	
+	strcpy(banner_literal, "SSH-");
+
+#ifdef EBCDIC
+	libssh2_make_ascii(banner_literal, strlen(banner_literal));
+#endif
 
     if (session->startup_state == libssh2_NB_state_idle) {
         _libssh2_debug(session, LIBSSH2_TRACE_TRANS,
@@ -714,7 +753,7 @@ session_startup(LIBSSH2_SESSION *session, libssh2_socket_t sock)
             if (rc)
                 return _libssh2_error(session, rc,
                                       "Failed getting banner");
-        } while(strncmp("SSH-", (char *)session->remote.banner, 4));
+        } while(strncmp(banner_literal, (char *)session->remote.banner, 4));
 
         session->startup_state = libssh2_NB_state_sent1;
     }
@@ -738,6 +777,10 @@ session_startup(LIBSSH2_SESSION *session, libssh2_socket_t sock)
                          sizeof("ssh-userauth") - 1);
         memcpy(session->startup_service + 5, "ssh-userauth",
                sizeof("ssh-userauth") - 1);
+			   
+#ifdef EBCDIC
+		libssh2_make_ascii(session->startup_service + 5, sizeof("ssh-userauth") - 1);
+#endif
 
         session->startup_state = libssh2_NB_state_sent3;
     }
@@ -764,6 +807,10 @@ session_startup(LIBSSH2_SESSION *session, libssh2_socket_t sock)
 
         session->startup_service_length =
             _libssh2_ntohu32(session->startup_data + 1);
+			
+#ifdef EBCDIC
+		libssh2_make_ebcdic(session->startup_data + 5, session->startup_service_length);
+#endif
 
         if ((session->startup_service_length != (sizeof("ssh-userauth") - 1))
             || strncmp("ssh-userauth", (char *) session->startup_data + 5,
@@ -1112,16 +1159,17 @@ session_disconnect(LIBSSH2_SESSION *session, int reason,
 
         *(s++) = SSH_MSG_DISCONNECT;
         _libssh2_store_u32(&s, reason);
-        _libssh2_store_str(&s, description, descr_len);
-        /* store length only, lang is sent separately */
-        _libssh2_store_u32(&s, lang_len);
-
+        _libssh2_store_text(&s, description, descr_len);
+		/* SEP Liaison - I'm changing this back to the old style because lang 
+		   is a text field and needs to be translated */
+		_libssh2_store_text(&s, lang, lang_len);
+		
         session->disconnect_state = libssh2_NB_state_created;
     }
 
     rc = _libssh2_transport_send(session, session->disconnect_data,
-                                 session->disconnect_data_len,
-                                 (unsigned char *)lang, lang_len);
+                                  session->disconnect_data_len,
+								  NULL, 0);
     if (rc == LIBSSH2_ERROR_EAGAIN)
         return rc;
 
@@ -1411,7 +1459,11 @@ libssh2_poll_channel_read(LIBSSH2_CHANNEL *channel, int extended)
  * Returns 0 if writing to channel would block,
  * non-0 if data can be written without blocking
  */
+#ifdef __OS400__
+static int
+#else
 static inline int
+#endif
 poll_channel_write(LIBSSH2_CHANNEL * channel)
 {
     return channel->local.window_size ? 1 : 0;
@@ -1422,7 +1474,11 @@ poll_channel_write(LIBSSH2_CHANNEL * channel)
  * Returns 0 if no connections are waiting to be accepted
  * non-0 if one or more connections are available
  */
+#ifdef __OS400__
+static int
+#else
 static inline int
+#endif
 poll_listener_queued(LIBSSH2_LISTENER * listener)
 {
     return _libssh2_list_first(&listener->queue) ? 1 : 0;
